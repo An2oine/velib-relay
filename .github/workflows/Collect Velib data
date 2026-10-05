@@ -1,0 +1,41 @@
+name: Collect Velib data
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Velib (burst of 3 snapshots)
+        run: |
+          mkdir -p data
+          for i in 1 2 3; do
+            TS=$(date -u +%Y%m%dT%H%M%SZ)
+            curl -sS --max-time 20 -o "data/free_bike_${TS}.json" \
+              "https://velib-metropole-opendata.smoove.pro/opendata/Velib_Metropole/free_bike_status.json" || true
+            echo "snapshot $i: data/free_bike_${TS}.json  ($(stat -c%s data/free_bike_${TS}.json) bytes)"
+            [ $i -lt 3 ] && sleep 30
+          done
+          curl -sS --max-time 20 -o "data/station_information.json" \
+            "https://velib-metropole-opendata.smoove.pro/opendata/Velib_Metropole/station_information.json" || true
+
+      - name: Keep last 500 snapshots
+        run: |
+          cd data
+          ls -1t free_bike_*.json 2>/dev/null | tail -n +501 | xargs -r rm --
+          cd ..
+
+      - name: Commit and push
+        run: |
+          git config user.name "velib-bot"
+          git config user.email "velib-bot@users.noreply.github.com"
+          git add data/
+          git commit -m "snapshot $(date -u +%FT%TZ)" || echo "nothing to commit"
+          git push

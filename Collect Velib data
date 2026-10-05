@@ -1,0 +1,38 @@
+name: Collect Velib data
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # toutes les 5 min
+  workflow_dispatch:         # permet de lancer manuellement
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Velib free_bike_status
+        run: |
+          mkdir -p data
+          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          curl -sS --max-time 30 -o "data/free_bike_${TS}.json" \
+            "https://velib-metropole-opendata.smoove.pro/opendata/Velib_Metropole/free_bike_status.json"
+          curl -sS --max-time 30 -o "data/station_information.json" \
+            "https://velib-metropole-opendata.smoove.pro/opendata/Velib_Metropole/station_information.json"
+          ls -la data/ | tail -5
+
+      - name: Keep last 200 snapshots
+        run: |
+          cd data
+          ls -1t free_bike_*.json | tail -n +201 | xargs -r rm --
+          cd ..
+
+      - name: Commit and push
+        run: |
+          git config user.name "velib-bot"
+          git config user.email "velib-bot@users.noreply.github.com"
+          git add data/
+          git commit -m "snapshot $(date -u +%FT%TZ)" || echo "nothing to commit"
+          git push
